@@ -4,6 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 const Config = require('./models/Config'); // ✅ Moved early
 
@@ -72,6 +73,51 @@ app.post('/config', upload.single('logo'), async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+
+app.post('/send-email', upload.any(), async (req, res) => {
+  try {
+    const formData = req.body;
+
+    // Get config
+    const config = await Config.findOne();
+    if (!config) return res.status(404).json({ success: false, error: 'No config found' });
+
+    // Prepare attachments if any
+    const attachments = (req.files || []).map(file => ({
+      filename: file.originalname,
+      path: file.path,
+    }));
+
+    // Generate message HTML from dynamic fields
+    const htmlBody = Object.entries(formData)
+      .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
+      .join('');
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: config.ownerEmail,
+        pass: config.appPassword
+      }
+    });
+
+    await transporter.sendMail({
+      from: config.ownerEmail,
+      to: config.adminEmail,
+      subject: 'New Message from Contact Form',
+      html: htmlBody,
+      attachments
+    });
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error("❌ Error sending email:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 
 // Serve logo uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
