@@ -24,6 +24,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+app.get('/config.json', (req, res) => {
+  res.sendFile(__dirname + '/config.json');
+});
+
 // POST /config route
 app.post('/config', upload.single('logo'), (req, res) => {
   try {
