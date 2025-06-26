@@ -1,13 +1,14 @@
 const mongoose = require('mongoose');
 
-const configSchema = new mongoose.Schema({
+const ConfigSchema = new mongoose.Schema({
+  userId: { type: String, required: true, unique: true }, // unique per user
   ownerEmail: String,
   appPassword: String,
   adminEmail: String,
   replyMessage: String,
-  fields: Array,
   logoPath: String,
+  fields: Array,
   updatedAt: Date
 });
 
-module.exports = mongoose.model('Config', configSchema);
+module.exports = mongoose.model('Config', ConfigSchema);

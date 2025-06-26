@@ -38,23 +38,29 @@ mongoose.connect(process.env.MONGO_URI, {
 });
 
 // GET config
-app.get('/config.json', async (req, res) => {
+app.get('/config.json/:userId', async (req, res) => {
   try {
-    const config = await Config.findOne();
-    if (!config) return res.status(404).json({ error: "No config found" });
+    const { userId } = req.params;
+    const config = await Config.findOne({ userId });
+    if (!config) return res.status(404).json({ error: "No config found for user" });
     res.json(config);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// POST config
+
+//post Save config
 app.post('/config', upload.single('logo'), async (req, res) => {
   try {
+    const userId = req.headers['x-user-id']; // from frontend
+    if (!userId) return res.status(401).json({ success: false, error: "Missing user ID" });
+
     const { ownerEmail, appPassword, adminEmail, replyMessage } = req.body;
     const fields = req.body.fields ? JSON.parse(req.body.fields) : [];
 
     const configData = {
+      userId,
       ownerEmail,
       appPassword,
       adminEmail,
@@ -64,15 +70,15 @@ app.post('/config', upload.single('logo'), async (req, res) => {
       updatedAt: new Date()
     };
 
-    await Config.deleteMany();
-    await Config.create(configData);
-
+    await Config.findOneAndUpdate({ userId }, configData, { upsert: true });
     res.json({ success: true });
+
   } catch (error) {
     console.error("❌ Error saving config:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
 
 
 app.post('/send-email', upload.any(), async (req, res) => {
