@@ -40,38 +40,57 @@ const upload = multer({ storage });
 // ============================
 app.post('/config', upload.single('logo'), async (req, res) => {
   try {
+    console.log("🛠 Reached /config route");
+
     const apiKey = req.headers['x-api-key'];
+    console.log("🔑 Received API Key:", apiKey);
+
     if (!apiKey) return res.status(401).json({ success: false, error: 'Missing API key' });
 
     const {
-      ownerEmail,
-      appPassword,
-      adminEmail,
-      replyMessage,
-      fields
-    } = req.body;
+  ownerEmail,
+  appPassword,
+  adminEmail,
+  replyMessage,
+  fields,
+  userId // 👈 Add this!
+} = req.body;
+
+
+    console.log("📨 Body:", req.body);
 
     const logoPath = req.file ? `/uploads/${req.file.filename}` : null;
 
     const configData = {
-      apiKey,
-      ownerEmail,
-      appPassword,
-      adminEmail,
-      replyMessage,
-      logoPath,
-      fields: JSON.parse(fields || '[]'),
-      updatedAt: new Date(),
-    };
+  userId, // 👈 Important
+  apiKey,
+  ownerEmail,
+  appPassword,
+  adminEmail,
+  replyMessage,
+  logoPath,
+  fields: JSON.parse(fields || '[]'),
+  updatedAt: new Date(),
+};
+
+
+    console.log("📄 Final config data ready to be saved:", configData);
 
     await Config.findOneAndUpdate({ apiKey }, configData, { upsert: true });
+
     res.json({ success: true, message: 'Configuration saved successfully!' });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
+  console.error("🔥 SERVER ERROR:", err);
+  res.status(500).json({
+    success: false,
+    error: err.message || 'Unknown server error',
+    stack: err.stack // optional, for full detail in development
+  });
+}
+
 });
+
 
 
 // ============================
@@ -121,7 +140,7 @@ app.post('/send-email', upload.any(), async (req, res) => {
 
     const htmlContent = `
       ${logoImage}
-      <h2>📩 New Contact Form Submission</h2>
+      <h2>📩 New Form Submission</h2>
       ${fieldsHtml}
       <p style="margin-top:20px;color:#555;">${config.replyMessage || ''}</p>
     `;
