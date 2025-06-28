@@ -113,6 +113,9 @@ app.get('/config.json/:apiKey', async (req, res) => {
 // ============================
 // Send Email Route
 // ============================
+// ============================
+// Send Email Route
+// ============================
 app.post('/send-email', upload.any(), async (req, res) => {
   try {
     const apiKey = req.headers['x-api-key'];
@@ -126,14 +129,14 @@ app.post('/send-email', upload.any(), async (req, res) => {
       formData[key] = req.body[key];
     });
 
-    // Logo (optional)
+    // 🖼 Logo (optional)
     let logoImage = '';
     if (config.logoPath) {
       const baseURL = `${req.protocol}://${req.get('host')}`;
       logoImage = `<img src="${baseURL}${config.logoPath}" alt="Logo" width="150"/>`;
     }
 
-    // Build Email Content
+    // 🔧 Build form fields as HTML
     const fieldsHtml = Object.entries(formData)
       .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
       .join('');
@@ -145,6 +148,7 @@ app.post('/send-email', upload.any(), async (req, res) => {
       <p style="margin-top:20px;color:#555;">${config.replyMessage || ''}</p>
     `;
 
+    // ✅ 1. Send to Admin
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -160,13 +164,31 @@ app.post('/send-email', upload.any(), async (req, res) => {
       html: htmlContent
     });
 
-    res.json({ success: true, message: 'Email sent successfully' });
+    // ✅ 2. Auto-reply to user (form filler)
+    const userEmail = formData?.email || formData?.Email; // case-insensitive
+    if (userEmail) {
+      const replyContent = `
+        ${logoImage}
+        <p>🙏 Thank you for contacting us. We've received your message!</p>
+        <p style="margin-top:20px;color:#555;">${config.replyMessage || ''}</p>
+      `;
+
+      await transporter.sendMail({
+        from: config.ownerEmail,
+        to: userEmail,
+        subject: '📬 Thanks for reaching out',
+        html: replyContent
+      });
+    }
+
+    res.json({ success: true, message: 'Emails sent successfully' });
 
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: 'Email failed to send' });
   }
 });
+
 
 
 // ============================
