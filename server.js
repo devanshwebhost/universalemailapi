@@ -1,104 +1,130 @@
 const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
+const multer = require('multer');
+const cors = require('cors');
+const path = require('path');
+const Config = require('./models/Config'); // your config schema
 const nodemailer = require('nodemailer');
 require('dotenv').config();
-const Config = require('./models/Config'); // ✅ Moved early
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4000;
 
+// CORS setup
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Multer storage
+// Static files (for logos)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// MongoDB connection
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log('MongoDB connected'))
+  .catch((err) => console.error('MongoDB error:', err));
+
+// Multer config for file uploads
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const folder = './uploads';
-    if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-    cb(null, folder);
-  },
+  destination: './uploads/',
   filename: (req, file, cb) => {
-    const uniqueName = Date.now() + '-' + file.originalname;
-    cb(null, uniqueName);
+    cb(null, `${Date.now()}-${file.originalname}`);
   }
 });
 const upload = multer({ storage });
 
-// MongoDB connect
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => {
-  console.log("✅ MongoDB connected");
-}).catch((err) => {
-  console.error("❌ MongoDB connection error:", err.message);
-});
 
-// GET config
-app.get('/config.json/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const config = await Config.findOne({ userId });
-    if (!config) return res.status(404).json({ error: "No config found for user" });
-    res.json(config);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-//post Save config
+// ============================
+// Save or Update Config Route
+// ============================
 app.post('/config', upload.single('logo'), async (req, res) => {
   try {
-    const userId = req.headers['x-user-id']; // from frontend
-    if (!userId) return res.status(401).json({ success: false, error: "Missing user ID" });
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey) return res.status(401).json({ success: false, error: 'Missing API key' });
 
-    const { ownerEmail, appPassword, adminEmail, replyMessage } = req.body;
-    const fields = req.body.fields ? JSON.parse(req.body.fields) : [];
-
-    const configData = {
-      userId,
+    const {
       ownerEmail,
       appPassword,
       adminEmail,
       replyMessage,
-      fields,
-      logoPath: req.file ? `/uploads/${req.file.filename}` : null,
-      updatedAt: new Date()
+      fields
+    } = req.body;
+
+    const logoPath = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const configData = {
+      apiKey,
+      ownerEmail,
+      appPassword,
+      adminEmail,
+      replyMessage,
+      logoPath,
+      fields: JSON.parse(fields || '[]'),
+      updatedAt: new Date(),
     };
 
-    await Config.findOneAndUpdate({ userId }, configData, { upsert: true });
-    res.json({ success: true });
+    await Config.findOneAndUpdate({ apiKey }, configData, { upsert: true });
+    res.json({ success: true, message: 'Configuration saved successfully!' });
 
-  } catch (error) {
-    console.error("❌ Error saving config:", error.message);
-    res.status(500).json({ success: false, error: error.message });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
 
+// ============================
+// Get Config by apiKey Route
+// ============================
+app.get('/config.json/:apiKey', async (req, res) => {
+  try {
+    const { apiKey } = req.params;
+    const config = await Config.findOne({ apiKey });
+    if (!config) return res.status(404).json({ success: false, error: 'Config not found' });
 
+    res.json({ success: true, config });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+
+// ============================
+// Send Email Route
+// ============================
 app.post('/send-email', upload.any(), async (req, res) => {
   try {
-    const formData = req.body;
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey) return res.status(401).json({ success: false, error: 'Missing API key' });
 
-    // Get config
-    const config = await Config.findOne();
-    if (!config) return res.status(404).json({ success: false, error: 'No config found' });
+    const config = await Config.findOne({ apiKey });
+    if (!config) return res.status(404).json({ success: false, error: 'Config not found for this API key' });
 
-    // Prepare attachments if any
-    const attachments = (req.files || []).map(file => ({
-      filename: file.originalname,
-      path: file.path,
-    }));
+    const formData = {};
+    req.body && Object.keys(req.body).forEach(key => {
+      formData[key] = req.body[key];
+    });
 
-    // Generate message HTML from dynamic fields
-    const htmlBody = Object.entries(formData)
+    // Logo (optional)
+    let logoImage = '';
+    if (config.logoPath) {
+      const baseURL = `${req.protocol}://${req.get('host')}`;
+      logoImage = `<img src="${baseURL}${config.logoPath}" alt="Logo" width="150"/>`;
+    }
+
+    // Build Email Content
+    const fieldsHtml = Object.entries(formData)
       .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
       .join('');
+
+    const htmlContent = `
+      ${logoImage}
+      <h2>📩 New Contact Form Submission</h2>
+      ${fieldsHtml}
+      <p style="margin-top:20px;color:#555;">${config.replyMessage || ''}</p>
+    `;
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -111,24 +137,22 @@ app.post('/send-email', upload.any(), async (req, res) => {
     await transporter.sendMail({
       from: config.ownerEmail,
       to: config.adminEmail,
-      subject: 'New Message from Contact Form',
-      html: htmlBody,
-      attachments
+      subject: 'New Contact Form Submission',
+      html: htmlContent
     });
 
-    res.json({ success: true });
+    res.json({ success: true, message: 'Email sent successfully' });
 
-  } catch (error) {
-    console.error("❌ Error sending email:", error.message);
-    res.status(500).json({ success: false, error: error.message });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Email failed to send' });
   }
 });
 
 
-// Serve logo uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Start server
+// ============================
+// Start Server
+// ============================
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
