@@ -163,7 +163,7 @@ app.post('/send-email', upload.any(), async (req, res) => {
     await transporter.sendMail({
       from: config.ownerEmail,
       to: config.adminEmail,
-      subject: 'New Contact Form Submission',
+      subject: 'New Form Submission',
       html: htmlContent
     });
 
